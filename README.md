@@ -144,4 +144,6 @@ SD Ultimate Slice Calculator: - Allows you to select a multiplier, and a slice p
 -
 ![image](https://github.com/user-attachments/assets/efcc017c-127c-4c1c-940d-cc0848d53cc0)
 
-
+Games: - Pixelart - Supports masking, pixelation size, video processing, and color palette matching via a single picture.
+-
+![image](https://github.com/user-attachments/assets/f5f619c0-0d82-4f49-9160-da12bac3e911)
