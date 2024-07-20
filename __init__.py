@@ -36,7 +36,7 @@ from .nodes.fl_separatemasks import FL_SeparateMaskComponents
 from .nodes.fl_pasteoncanvas import FL_PasteOnCanvas
 from .nodes.fl_bullethellgame import FL_BulletHellGame
 from .nodes.fl_tetrisgame import FL_TetrisGame
-
+from .nodes.fl_dither import FL_Dither
 
 NODE_CLASS_MAPPINGS = {
     "FL_ImageRandomizer": FL_ImageRandomizer,
@@ -76,7 +76,8 @@ NODE_CLASS_MAPPINGS = {
     "FL_SeparateMaskComponents": FL_SeparateMaskComponents,
     "FL_PasteOnCanvas": FL_PasteOnCanvas,
     "FL_BulletHellGame": FL_BulletHellGame,
-    "FL_TetrisGame": FL_TetrisGame
+    "FL_TetrisGame": FL_TetrisGame,
+    "FL_Dither": FL_Dither
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -117,7 +118,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FL_SeparateMaskComponents": "FL Separate Mask Components",
     "FL_PasteOnCanvas": "FL Paste On Canvas",
     "FL_BulletHellGame": "FL BulletHell Game",
-    "FL_TetrisGame": "FL Tetris Game"
+    "FL_TetrisGame": "FL Tetris Game",
+    "FL_Dither": "FL Dither"
 }
 
 
