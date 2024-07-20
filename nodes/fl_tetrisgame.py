@@ -5,7 +5,7 @@ class FL_TetrisGame:
 
     RETURN_TYPES = ()
     FUNCTION = "execute"
-    CATEGORY = "Fill-Nodes"
+    CATEGORY = "🏵️Fill Nodes/games"
 
     def execute(self):
         return ()
