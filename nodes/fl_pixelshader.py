@@ -14,6 +14,7 @@ class FL_PixelArtShader:
             "optional": {
                 "pixel_size": ("FLOAT", {"default": 100.0, "min": 1.0, "max": 1000.0, "step": 1.0}),
                 "color_depth": ("FLOAT", {"default": 50.0, "min": 1.0, "max": 255.0, "step": 1.0}),
+                "use_aspect_ratio": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -21,13 +22,13 @@ class FL_PixelArtShader:
     FUNCTION = "apply_pixel_art_shader"
     CATEGORY = "🏵️Fill Nodes/VFX"
 
-    def apply_pixel_art_shader(self, images, pixel_size, color_depth):
+    def apply_pixel_art_shader(self, images, use_aspect_ratio, pixel_size, color_depth):
         result = []
         total_images = len(images)
         pbar = ProgressBar(total_images)
         for idx, image in enumerate(images, start=1):
             img = self.t2p(image)
-            result_img = pixel_art_effect(img, pixel_size, color_depth)
+            result_img = pixel_art_effect(img, pixel_size, color_depth, use_aspect_ratio)
             result_img = self.p2t(result_img)
             result.append(result_img)
             pbar.update_absolute(idx)
@@ -46,7 +47,7 @@ class FL_PixelArtShader:
             t = torch.from_numpy(i).unsqueeze(0)
         return t
 
-def pixel_art_effect(image, pixel_size, color_depth):
+def pixel_art_effect(image, pixel_size, color_depth, use_aspect_ratio):
     # Move the input image to the GPU
     image = torch.tensor(np.array(image)).float().to("cuda") / 255.0
 
@@ -59,16 +60,26 @@ def pixel_art_effect(image, pixel_size, color_depth):
     uv_grid = torch.stack(torch.meshgrid(uv_y, uv_x), dim=-1)  # Swap uv_y and uv_x
 
     # Evaluate the shader code for each pixel
-    output_tensor = evaluate_shader(image, uv_grid, pixel_size, color_depth)
+    output_tensor = evaluate_shader(image, uv_grid, pixel_size, color_depth, use_aspect_ratio)
 
     # Convert the output tensor to a PIL image
     output_image = Image.fromarray((output_tensor.cpu().numpy() * 255).astype(np.uint8))
 
     return output_image
 
-def evaluate_shader(image, uv_grid, pixel_size, color_depth):
+def evaluate_shader(image, uv_grid, pixel_size, color_depth, use_aspect_ratio):
+    # Calculate pixel size based on aspect ratio if enabled
+    if use_aspect_ratio:
+        aspect_ratio = image.shape[1] / image.shape[0]
+        pixel_size_x = pixel_size
+        pixel_size_y = pixel_size * aspect_ratio
+    else:
+        pixel_size_x = pixel_size_y = pixel_size
+
     # Sample the input image at the pixelated UV coordinates
-    pixelUV = torch.floor(uv_grid * pixel_size) / pixel_size
+    pixelUV_x = torch.floor(uv_grid[..., 1] * pixel_size_x) / pixel_size_x
+    pixelUV_y = torch.floor(uv_grid[..., 0] * pixel_size_y) / pixel_size_y
+    pixelUV = torch.stack((pixelUV_y, pixelUV_x), dim=-1)
     color = texture_lookup(image, pixelUV)
 
     # Apply color adjustments
