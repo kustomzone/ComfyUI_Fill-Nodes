@@ -1,8 +1,10 @@
 import torch
 import numpy as np
 from PIL import Image
+from sklearn.cluster import KMeans
 
 from comfy.utils import ProgressBar
+
 
 class FL_PixelArtShader:
     @classmethod
@@ -15,6 +17,9 @@ class FL_PixelArtShader:
                 "pixel_size": ("FLOAT", {"default": 100.0, "min": 1.0, "max": 1000.0, "step": 1.0}),
                 "color_depth": ("FLOAT", {"default": 50.0, "min": 1.0, "max": 255.0, "step": 1.0}),
                 "use_aspect_ratio": ("BOOLEAN", {"default": True}),
+                "palette_image": ("IMAGE", {"default": None}),
+                "palette_colors": ("INT", {"default": 16, "min": 2, "max": 256, "step": 1}),
+                "mask": ("IMAGE", {"default": None}),
             },
         }
 
@@ -22,84 +27,105 @@ class FL_PixelArtShader:
     FUNCTION = "apply_pixel_art_shader"
     CATEGORY = "🏵️Fill Nodes/VFX"
 
-    def apply_pixel_art_shader(self, images, use_aspect_ratio, pixel_size, color_depth):
+    def apply_pixel_art_shader(self, images, use_aspect_ratio, pixel_size, color_depth, palette_image=None,
+                               palette_colors=16, mask=None):
         result = []
         total_images = len(images)
         pbar = ProgressBar(total_images)
-        for idx, image in enumerate(images, start=1):
+
+        if palette_image is not None:
+            palette = extract_palette(self.t2p(palette_image[0]), palette_colors)
+        else:
+            palette = None
+
+        mask_images = self.prepare_mask_batch(mask, total_images) if mask is not None else None
+
+        for idx, image in enumerate(images):
             img = self.t2p(image)
-            result_img = pixel_art_effect(img, pixel_size, color_depth, use_aspect_ratio)
+
+            mask_img = self.process_mask(mask_images[idx], img.size) if mask_images is not None else None
+
+            result_img = pixel_art_effect(img, pixel_size, color_depth, use_aspect_ratio, palette, mask_img)
             result_img = self.p2t(result_img)
             result.append(result_img)
-            pbar.update_absolute(idx)
+            pbar.update_absolute(idx + 1)
 
         return (torch.cat(result, dim=0),)
 
     def t2p(self, t):
-        if t is not None:
-            i = 255.0 * t.cpu().numpy().squeeze()
-            p = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-        return p
+        i = 255.0 * t.cpu().numpy().squeeze()
+        return Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
 
     def p2t(self, p):
-        if p is not None:
-            i = np.array(p).astype(np.float32) / 255.0
-            t = torch.from_numpy(i).unsqueeze(0)
-        return t
+        i = np.array(p).astype(np.float32) / 255.0
+        return torch.from_numpy(i).unsqueeze(0)
 
-def pixel_art_effect(image, pixel_size, color_depth, use_aspect_ratio):
-    # Move the input image to the GPU
+    def prepare_mask_batch(self, mask, total_images):
+        if mask is None:
+            return None
+        mask_images = [self.t2p(m) for m in mask]
+        if len(mask_images) < total_images:
+            mask_images = mask_images * (total_images // len(mask_images) + 1)
+        return mask_images[:total_images]
+
+    def process_mask(self, mask, target_size):
+        mask = mask.resize(target_size, Image.LANCZOS)
+        return mask.convert('L') if mask.mode != 'L' else mask
+
+
+def extract_palette(image, n_colors):
+    image = image.convert('RGB')
+    pixels = np.array(image).reshape(-1, 3)
+    kmeans = KMeans(n_clusters=n_colors, random_state=42)
+    kmeans.fit(pixels)
+    colors = kmeans.cluster_centers_
+    return torch.from_numpy(colors.astype(np.float32) / 255.0).to("cuda")
+
+
+def pixel_art_effect(image, pixel_size, color_depth, use_aspect_ratio, palette, mask=None):
     image = torch.tensor(np.array(image)).float().to("cuda") / 255.0
-
-    # Get the input image dimensions
     height, width = image.shape[0], image.shape[1]
-
-    # Create a grid of UV coordinates
     uv_x = torch.linspace(0, 1, width, device="cuda")
     uv_y = torch.linspace(0, 1, height, device="cuda")
-    uv_grid = torch.stack(torch.meshgrid(uv_y, uv_x), dim=-1)  # Swap uv_y and uv_x
-
-    # Evaluate the shader code for each pixel
+    uv_grid = torch.stack(torch.meshgrid(uv_y, uv_x), dim=-1)
     output_tensor = evaluate_shader(image, uv_grid, pixel_size, color_depth, use_aspect_ratio)
+    if palette is not None:
+        output_tensor = apply_palette(output_tensor, palette)
+    if mask is not None:
+        mask_tensor = torch.tensor(np.array(mask)).float().to("cuda") / 255.0
+        mask_tensor = mask_tensor.unsqueeze(-1).expand(-1, -1, 3)
+        output_tensor = output_tensor * mask_tensor + image * (1 - mask_tensor)
+    return Image.fromarray((output_tensor.cpu().numpy() * 255).astype(np.uint8))
 
-    # Convert the output tensor to a PIL image
-    output_image = Image.fromarray((output_tensor.cpu().numpy() * 255).astype(np.uint8))
-
-    return output_image
 
 def evaluate_shader(image, uv_grid, pixel_size, color_depth, use_aspect_ratio):
-    # Calculate pixel size based on aspect ratio if enabled
     if use_aspect_ratio:
         aspect_ratio = image.shape[1] / image.shape[0]
-        pixel_size_x = pixel_size
-        pixel_size_y = pixel_size * aspect_ratio
+        pixel_size_x, pixel_size_y = pixel_size, pixel_size * aspect_ratio
     else:
         pixel_size_x = pixel_size_y = pixel_size
-
-    # Sample the input image at the pixelated UV coordinates
     pixelUV_x = torch.floor(uv_grid[..., 1] * pixel_size_x) / pixel_size_x
     pixelUV_y = torch.floor(uv_grid[..., 0] * pixel_size_y) / pixel_size_y
     pixelUV = torch.stack((pixelUV_y, pixelUV_x), dim=-1)
     color = texture_lookup(image, pixelUV)
+    return adjust_color(color, color_depth)
 
-    # Apply color adjustments
-    color = adjust_color(color, color_depth)
-
-    return color
 
 def adjust_color(color, color_depth):
-    # Apply color depth reduction
-    color = torch.floor(color * color_depth) / color_depth
+    return torch.floor(color * color_depth) / color_depth
 
-    return color
 
 def texture_lookup(image, uv):
-    # Clamp the UV coordinates to [0, 1]
     uv = torch.clamp(uv, 0.0, 1.0)
-
-    # Calculate the pixel coordinates
-    y = (uv[..., 0] * (image.shape[0] - 1)).long()  # Use uv[..., 0] for y
-    x = (uv[..., 1] * (image.shape[1] - 1)).long()  # Use uv[..., 1] for x
-
-    # Perform texture lookup using the pixel coordinates
+    y = (uv[..., 0] * (image.shape[0] - 1)).long()
+    x = (uv[..., 1] * (image.shape[1] - 1)).long()
     return image[y, x]
+
+
+def apply_palette(image, palette):
+    original_shape = image.shape
+    pixels = image.reshape(-1, 3)
+    distances = torch.cdist(pixels, palette)
+    nearest_palette_indices = torch.argmin(distances, dim=1)
+    new_pixels = palette[nearest_palette_indices]
+    return new_pixels.reshape(original_shape)
