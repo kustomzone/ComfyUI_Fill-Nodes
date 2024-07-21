@@ -174,8 +174,8 @@ def shadertoy_texture_bind(shader, textures):
 class FL_Shadertoy:
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": {"width": ("INT", {"default": 512, "min": 64, "max": 2048, "step": 8}),
-                             "height": ("INT", {"default": 512, "min": 64, "max": 2048, "step": 8}),
+        return {"required": {"width": ("INT", {"default": 512, "min": 64, "max": 15360, "step": 8}),
+                             "height": ("INT", {"default": 512, "min": 64, "max": 15360, "step": 8}),
                              "frame_count": ("INT", {"default": 1, "min": 1, "max": 262144}),
                              "fps": ("INT", {"default": 1, "min": 1, "max": 120}),
                              "source": (
